@@ -79,12 +79,16 @@ class NPRFDRMMPairGenerator(PairGenerator):
       dd_d_neg_file = os.path.join(self.dd_d_feature_path, str(qid), "q{0}_d{1}.npy".format(qid, docid_neg))
       dd_d_pos_file = os.path.join(self.dd_d_feature_path, str(qid), "q{0}_d{1}.npy".format(qid, docid_pos))
       dd_q_dict = self.dd_q_gating_dict.get(qid)
-
+      
       relevance = self.relevance_dict.get(qid)
       topk_supervised_docid_list = relevance.get_supervised_docid_list()[: self.nb_supervised_doc]
+      # print(type(topk_supervised_docid_list))
       dd_q_feat = [dd_q_dict.get(d)[: self.doc_topk_term] for d in topk_supervised_docid_list]
-      dd_q_feat = np.asarray(dd_q_feat).reshape((self.nb_supervised_doc, self.doc_topk_term, 1))
-
+      # print(dd_q_feat.shape)
+      try:
+        dd_q_feat = np.asarray(dd_q_feat).reshape((self.nb_supervised_doc, self.doc_topk_term, 1))
+      except:
+        continue
       # curr_dd_q_feature = curr_dd_q_feature[:self.nb_supervised_doc, :self.doc_topk_term]
       # curr_dd_q_feature = np.asarray(curr_dd_q_feature).reshape((self.nb_supervised_doc, self.doc_topk_term, 1))
 
@@ -103,7 +107,10 @@ class NPRFDRMMPairGenerator(PairGenerator):
       selected_score = np.asarray(score_list, dtype=np.float32)
       selected_score = 0.5 * (selected_score - min_score) / (max_score - min_score) + 0.5
       #selected_score = np.asarray(score_list, dtype=np.float32) + max_score
-      selected_score = selected_score.reshape((self.nb_supervised_doc, 1))
+      try:
+        selected_score = selected_score.reshape((self.nb_supervised_doc, 1))
+      except:
+        continue
       score_gate[2 * i, :], score_gate[2 * i + 1, :] = selected_score, selected_score
 
     return score_gate
