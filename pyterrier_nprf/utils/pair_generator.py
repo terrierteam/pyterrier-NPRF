@@ -6,7 +6,7 @@ import os
 import sys
 import math
 import logging
-sys.path.append('../utils')
+from tqdm import tqdm
 
 from .relevance_info import Relevance
 
@@ -109,28 +109,27 @@ class PairGenerator(object):
 
     '''
     triplet_list_global = []
-    for qid in qid_list:
+    for qid in tqdm(qid_list, unit="q", desc="generating triples"):
       relevance = self.relevance_dict.get(qid)
       relevance_posting = relevance.get_judged_docid_list()
       pos_list = []
       for i in range(len(relevance_posting) - 1, 0, -1):
-        pos_list += relevance_posting[i]
+        pos_list.append(relevance_posting[i])
       num_of_positive = len(pos_list)
       curr_sample_size, curr_perquery_limit = self._decide_sample(sample_size, num_of_positive)
-
       curr_triplet_list = []
       for i in range(len(relevance_posting) - 1, 0, -1):
-        curr_positive_docid_list = relevance_posting[i]
+        curr_positive_docid_list = [relevance_posting[i]]
         curr_negative_docid_list = []
         for j in range(i - 1, -1, -1):
-          curr_negative_docid_list.extend(relevance_posting[j])
-        pair_list =  self.create_triplet_list(curr_negative_docid_list, curr_positive_docid_list, qid, curr_sample_size)
+          curr_negative_docid_list.append(relevance_posting[j])
+        pair_list = self.create_triplet_list(curr_negative_docid_list, curr_positive_docid_list, qid, curr_sample_size)
         if pair_list != None:
           curr_triplet_list.extend(pair_list)
       curr_triplet_list = np.random.permutation(curr_triplet_list)[: curr_perquery_limit]
       triplet_list_global.extend(curr_triplet_list)
     triplet_list_global = np.random.permutation(triplet_list_global)
-    logging.info("Generate totally {0} pairs".format(len(triplet_list_global)))
+    logging.info("Generated total of {0} pairs".format(len(triplet_list_global)))
     return triplet_list_global
 
 
@@ -158,7 +157,7 @@ class PairGenerator(object):
       pos_sample_list = [pos_docid] * sample_size
       triplet_list.extend(zip([qid] * sample_size, neg_sample_list, pos_sample_list))
 
-    return  triplet_list
+    return triplet_list
 
   def count_pairs(self, qid_list, sample_size):
     '''Deprecated,  please use func count_pairs_balanced
