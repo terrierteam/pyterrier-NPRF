@@ -120,15 +120,14 @@ class NPRFDRMM(BasicModel):
     res_dict = OrderedDict()
     for qid in qid_list:
       
-      relevance = relevance_dict.get(qid)
-      
+      relevance = relevance_dict[qid]      
       supervised_docid_list = relevance.get_supervised_docid_list()
       if len(supervised_docid_list) < self.config.nb_supervised_doc:
         # cannot construct d2d feature, thus not need to be update
         score_list = relevance.get_supervised_score_list()
         res = Result(qid, supervised_docid_list, score_list, self.config.runid)
         res_dict.update({qid: res})
-        logging.warn("query {0} not to be rerank".format(qid))
+        logging.warn("query {0} cannot be reranked: it has {1} supervised docs, {2} are required".format(qid, len(supervised_docid_list), self.config.nb_supervised_doc))
       else:
         qualified_qid_list.append(qid)
     # generate re rank score
@@ -145,7 +144,7 @@ class NPRFDRMM(BasicModel):
     topk_score_all = topk_score_all.flatten()
 
     for i, qid in enumerate(qualified_qid_list):
-      relevance = relevance_dict.get(qid)
+      relevance = relevance_dict[qid]
       supervised_docid_list = relevance.get_supervised_docid_list()
       topk_score = topk_score_all[sum(len_indicator[:i]): sum(len_indicator[:i]) + len_indicator[i]]
 
