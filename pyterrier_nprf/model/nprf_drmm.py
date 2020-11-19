@@ -63,7 +63,7 @@ class NPRFDRMM(BasicModel):
     # out = Dot(axes=[2, 2], name='dd_pseudo_out')([z, dd_q_w])
 
     out = Lambda(lambda x: K.batch_dot(x[0], x[1], axes=[2, 2]), name='dd_pseudo_out')([z, dd_q_w])
-    dd_init_out = Lambda(lambda x: tf.matrix_diag_part(x), output_shape=(self.config.nb_supervised_doc,), name='dd_init_out')(out)
+    dd_init_out = Lambda(lambda x: tf.linalg.diag_part(x), output_shape=(self.config.nb_supervised_doc,), name='dd_init_out')(out)
     '''
     dd_init_out = Lambda(lambda x: tf.reduce_sum(x, axis=2), output_shape=(self.config.nb_supervised_doc,))(z)
     '''
