@@ -391,7 +391,7 @@ class NeuralPRFEstimator(EstimatorBase):
         valid_params = ddm.eval_by_qid_list_helper(valid_qid_list, pair_generator)
         nb_pair_train = pair_generator.count_pairs_balanced(train_qid_list, ddm.config.pair_sample_size)
 
-        batch_logger = NBatchLogger(50)
+        #batch_logger = NBatchLogger(50)
         batch_losses = []
         met = [[], [], [], [], [], []]
         iteration = -1
@@ -404,7 +404,6 @@ class NeuralPRFEstimator(EstimatorBase):
             nb_batch = nb_pair_train / ddm.config.batch_size
 
             train_generator = pair_generator.generate_pair_batch(train_qid_list, ddm.config.pair_sample_size)
-#             print('nb_batch:', nb_batch)
             for j in range(int(nb_batch / 100)+1):
                 iteration += 1
                 print('iteration: %d %s' % (iteration, str(datetime.datetime.now())))
