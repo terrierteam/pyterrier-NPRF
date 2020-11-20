@@ -5,7 +5,7 @@ import numpy as np
 from pyterrier.transformer import EstimatorBase
 from gensim.models.keyedvectors import KeyedVectors
 
-
+import datetime
 
 import random
 import os
@@ -14,7 +14,7 @@ import tensorflow as tf
 
 
 from .preprocess.matrix import similarity_matrix, kernel_from_matrix, hist_from_matrix, kernal_mus, kernel_sigmas
-from .utils.file_operation import write_result_to_trec_format, parse_stoplist, make_directory
+from .utils.file_operation import parse_stoplist, make_directory
 from .model.nprf_drmm_config import NPRFDRMMConfig
 from .model.nprf_drmm import NPRFDRMM
 from .model.model import NBatchLogger
@@ -22,6 +22,7 @@ from .metrics.rank_losses import rank_hinge_loss
 from .metrics.evaluations import evaluate_trec
 from .utils.nprf_drmm_pair_generator import NPRFDRMMPairGenerator
 from .utils.result import Result
+from .utils import pair_generator
 from .utils.relevance_info import Relevance
 from pyterrier import tqdm
 
@@ -30,6 +31,7 @@ class NeuralPRFEstimator(EstimatorBase):
     def __init__(self, index, data_dir='data/'):
         
         super().__init__()
+        pair_generator.tqdm = tqdm
         self.index = index
         self.nb_docs = self.index.getCollectionStatistics().getNumberOfDocuments()
         self.tempdir = data_dir
@@ -60,8 +62,8 @@ class NeuralPRFEstimator(EstimatorBase):
 
     def create_relevance(self, res, qrels):
         relevance_dict = OrderedDict()
-        s1 = pd.merge(res, qrels, how='left', on=['qid','docno'])
-        s1.label = s1.label.fillna(0)
+        s1 = pd.merge(res, qrels, how='inner', on=['qid','docno'])
+        #s1.label = s1.label.fillna(0)
 
         for qid, n in s1.groupby('qid'):
             
@@ -278,23 +280,8 @@ class NeuralPRFEstimator(EstimatorBase):
         }
         self.hist_d2d(**hist_params)
 
-    def write_result_to_trec_format(self, result_dict, write_path, docnolist_dict):
-
-        
-        f = open(write_path, 'w')
-        for qid, result in result_dict.items():
-
-            docid_list = result.get_docid_list()
-            score_list = result.get_score_list()
-            rank = 0
-            for docid, score in zip(docid_list, score_list):
-                f.write("{0}\tQ0\t{1}\t{2}\t{3}\t{4}\n".format(qid, docnolist_dict[docid], rank, score, result.get_runid()))
-                rank += 1
-
-        f.close()
-
     def eval_by_qid_list(self, X, len_indicator, res_dict, qualified_qid_list,  model,
-                       relevance_dict, rerank_topk, nb_supervised_doc, doc_topk_term, qrels_file,
+                       relevance_dict, rerank_topk, nb_supervised_doc, doc_topk_term,
                        docnolist_dict, runid, output_file, ):
     # dd_q, dd_d = list(map(lambda x: x[:, :nb_supervised_doc, : doc_topk_term, :], [dd_q, dd_d]))
         topk_score_all = model.predict_on_batch(X)
@@ -315,14 +302,12 @@ class NeuralPRFEstimator(EstimatorBase):
                 behind_score = np.min(topk_score) - 0.001 - np.sort(np.random.random((len(supervised_docid_list) - rerank_topk,)))
                 score_list = np.concatenate((topk_score, behind_score))
 
-            run[qid] = { docid : score for (docid, score) in zip(supervised_docid_list, score_list)}
+            run[qid] = { str(docid) : float(score) for (docid, score) in zip(supervised_docid_list, score_list)}
 
-        metrics=["map", "P_20" "ndcg_cut_20", "err_cut_20"]
+        metrics=["map", "P_20", "ndcg_cut_20"]
+        import pyterrier as pt
         measure_dict = pt.Utils.evaluate(run, qrels, metrics=metrics)
         return [measure_dict.get(m, 0.0) for m in metrics]
-        #self.write_result_to_trec_format(res_dict, output_file, docnolist_dict)
-        #met = evaluate_trec(qrels_file, output_file)
-        #return met, res_dict
 
     def _eval_by_qid_list_helper(self, qid_list, pair_generator, nb_supervised_doc, relevance_dict, runid, rerank_topk):
         
@@ -365,6 +350,9 @@ class NeuralPRFEstimator(EstimatorBase):
             assert "docno" in qrels.columns
             assert "label" in qrels.columns
         
+        if not hasattr(self, 'relevance_dict'):
+            with open(self.relevance_file,'rb') as f:
+                self.relevance_dict = pickle.load(f)
 
         res = pd.concat([topicsDocsTrain, topicsDocValid])        
         docidlist=res['docid'].to_numpy()
@@ -398,7 +386,7 @@ class NeuralPRFEstimator(EstimatorBase):
         self.model = ddm.build()
         self.model.compile(optimizer=ddm.config.optimizer, loss=rank_hinge_loss)
 
-        session = tf.Session(config=tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True)))
+        session = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=tf.compat.v1.GPUOptions(allow_growth=True)))
 
         valid_params = ddm.eval_by_qid_list_helper(valid_qid_list, pair_generator)
         nb_pair_train = pair_generator.count_pairs_balanced(train_qid_list, ddm.config.pair_sample_size)
@@ -418,16 +406,16 @@ class NeuralPRFEstimator(EstimatorBase):
             train_generator = pair_generator.generate_pair_batch(train_qid_list, ddm.config.pair_sample_size)
 #             print('nb_batch:', nb_batch)
             for j in range(int(nb_batch / 100)+1):
-                print('iteration:', iteration)
                 iteration += 1
+                print('iteration: %d %s' % (iteration, str(datetime.datetime.now())))
                 history = self.model.fit_generator(generator=train_generator,
                                             steps_per_epoch= nb_pair_train / ddm.config.batch_size,
                                             epochs=1,
                                             shuffle=False,
                                             verbose=0,
-                                            callbacks=[batch_logger],
+                                            #callbacks=[batch_logger],
                                             )
-                batch_losses.append(batch_logger.losses)
+                #batch_losses.append(batch_logger.losses)
                 print("[Iter {0}]\tLoss: {1}".format(iteration, history.history['loss']))
 
                 kwargs = {'model': self.model,
@@ -444,7 +432,7 @@ class NeuralPRFEstimator(EstimatorBase):
 
                 valid_met = self.eval_by_qid_list(*valid_params, **kwargs)
                 print("[Valid]\t\tMAP\tP20\tNDCG20")
-                print("\t\t{0}\t{1}\t{2}".format(valid_met[0], valid_met[1], valid_met[2]))
+                print("\t\t%0.4f\t%0.2f\t%0.4f" % (valid_met[0], valid_met[1], valid_met[2]))
                 met[0].append(valid_met[0])
                 met[1].append(valid_met[1])
                 met[2].append(valid_met[2])
@@ -455,33 +443,12 @@ class NeuralPRFEstimator(EstimatorBase):
                     best_ndcg20 = float(valid_met[2])
                     self.model.save_weights(self.model_file)
 
-
-        print('MAP:{}\tP20:{}\tNDCG20:{}'.format(best_map, best_p20, best_ndcg20))
+        print('MAP: %0.4f\tP@20:%0.2f\tNDCG20:%0.4f' % (best_map, best_p20, best_ndcg20))
+        print('MAP:{}\tP20:{}\tNDCG20:{}'.format())
         
         self.model.load_weights(self.model_file)
         self.ddm = ddm
 
-        #if ncessary, write terier's lexicon out to the "dictionary" file
-
-        #write out the topics file.
-        # topcis_file = os.path.join(self.tempdir, "topics")
-        # tr_topics[["qid", "query"]].write_csv( sep=" ")
-
-        # for i, row in tr_topics.iterrows():
-        #     docid = row["docid"]
-        #     contents = _get_contents(docid)
-        # write out to corpus file
-
-
-        
-
-        #now call your main data preparation methods. 
-
-        # TODO generate d2d matrix from index?
-        #topk_term - this generates the top K terms from each document in index apriori.
-
-
-        # now call learning
     def transform(self, res, qrels, topics):
         tr_qrels = qrels.copy()
         self.qrels_eval_filename = os.path.join(self.tempdir, "qrels_eval")
