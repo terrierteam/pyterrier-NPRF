@@ -280,12 +280,15 @@ class NeuralPRFEstimator(EstimatorBase):
         }
         self.hist_d2d(**hist_params)
 
-    def eval_by_qid_list(self, X, len_indicator, res_dict, qualified_qid_list,  model,
-                       relevance_dict, rerank_topk, nb_supervised_doc, doc_topk_term,
-                       docnolist_dict, runid, output_file, ):
-    # dd_q, dd_d = list(map(lambda x: x[:, :nb_supervised_doc, : doc_topk_term, :], [dd_q, dd_d]))
+    def score_by_qid_list(self, X, model):
         topk_score_all = model.predict_on_batch(X)
         topk_score_all = topk_score_all.flatten()
+        return topk_score_all
+
+    def eval_by_qid_list(self, X, len_indicator, res_dict, qualified_qid_list,  model,
+                       relevance_dict, rerank_topk, nb_supervised_doc, doc_topk_term,
+                       docnolist_dict, runid, output_file):
+        topk_score_all  = self.score_by_qid_list(X, model)
 
         qrels = {}
         run = {}
@@ -381,7 +384,7 @@ class NeuralPRFEstimator(EstimatorBase):
                       'batch_size': config.batch_size,
                       'shuffle': True}
         config.regenerateParams(generator_params)
-        ddm = NPRFDRMM(config)
+        self.ddm = ddm = NPRFDRMM(config)
         pair_generator = NPRFDRMMPairGenerator(**config.generator_params)
         self.model = ddm.build()
         self.model.compile(optimizer=ddm.config.optimizer, loss=rank_hinge_loss)
@@ -446,18 +449,17 @@ class NeuralPRFEstimator(EstimatorBase):
         print('MAP:{}\tP20:{}\tNDCG20:{}'.format())
         
         self.model.load_weights(self.model_file)
-        self.ddm = ddm
 
-    def transform(self, res, qrels, topics):
-        tr_qrels = qrels.copy()
-        self.qrels_eval_filename = os.path.join(self.tempdir, "qrels_eval")
-        tr_qrels["iteration"] = 0
-        tr_qrels[["qid", "iteration", "docno", "label"]].to_csv( self.qrels_eval_filename, sep=" ", index=False, header=False)
+    def transform(self, topics_and_docs):
+        for Docs in [topics_and_docs]:
+            assert "query" in Docs.columns
+            assert "docno" in Docs.columns
+            assert "docid" in Docs.columns
+            assert "qid" in Docs.columns
 
         # self.preprocess(res, qrels, topics)
         config = NPRFDRMMConfig()
         config.parent_path = self.tempdir
-        config.relevance_dict_path = self.relevance_file
         config.dd_q_feature_path = self.topk_idf_file
         config.dd_d_feature_path = self.hist_path
         generator_params = {'relevance_dict_path': self.relevance_file,
@@ -474,29 +476,29 @@ class NeuralPRFEstimator(EstimatorBase):
         config.regenerateParams(generator_params)
         
         pair_generator = NPRFDRMMPairGenerator(**config.generator_params)
-        test_qid_list = res.qid.unique().tolist()
-        test_params = self._eval_by_qid_list_helper(test_qid_list, pair_generator, self.ddm.config.nb_supervised_doc, self.relevance_dict, self.ddm.config.runid, self.ddm.config.rerank_topk)
-
+        test_qid_list = topics_and_docs.qid.unique().tolist()
+        test_params = self._eval_by_qid_list_helper(
+            test_qid_list, 
+            pair_generator, 
+            self.ddm.config.nb_supervised_doc, 
+            self.relevance_dict, 
+            self.ddm.config.runid, 
+            self.ddm.config.rerank_topk)
 
         docidlist=res['docid'].to_numpy()
         docnolist=res['docno'].to_numpy()
         docnolist_dict = dict(zip(docidlist, docnolist))
         
-
-
-        kwargs = {'model': self.model,
-                  'relevance_dict': self.relevance_dict,
-                  'rerank_topk': self.ddm.config.rerank_topk,
-                  'qrels_file': self.qrels_eval_filename,
-                  'docnolist_dict': docnolist_dict,
-                  'runid': self.ddm.config.runid,
-                  'nb_supervised_doc': self.ddm.config.nb_supervised_doc,
-                  'doc_topk_term': self.ddm.config.doc_topk_term,
-                  'output_file': self.output_file}
-        test_met, results_dict = self.eval_by_qid_list(*test_params, **kwargs)
-        
-        print("[Test]\t\tMAP\tP20\tNDCG20")
-        print("\t\t{0}\t{1}\t{2}".format(test_met[0], test_met[1], test_met[2]))
-        # df_results = pd.DataFrame(results_dict)
-        return test_met, results_dict
-    # use some of the same steps?? what if documents or terms have been processed before?
+        # kwargs = {'model': self.model,
+        #           #'relevance_dict': self.relevance_dict,
+        #           'rerank_topk': self.ddm.config.rerank_topk,
+        #           #'qrels_file': self.qrels_eval_filename,
+        #           'docnolist_dict': docnolist_dict,
+        #           'runid': self.ddm.config.runid,
+        #           'nb_supervised_doc': self.ddm.config.nb_supervised_doc,
+        #           'doc_topk_term': self.ddm.config.doc_topk_term,
+        #           'output_file': self.output_file}
+        scores = self.score_by_qid_list(*test_params, model=self.model)
+        rtr = topics_and_docs.copy()
+        rtr["scores"] = scores
+        return rtr
