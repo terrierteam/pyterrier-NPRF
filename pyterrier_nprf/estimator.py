@@ -12,19 +12,24 @@ import os
 import pickle
 import tensorflow as tf
 
+from multiprocessing.pool import ThreadPool as Pool
+from functools import partial
+from contextlib import contextmanager
 
-from .preprocess.matrix import similarity_matrix, kernel_from_matrix, hist_from_matrix, kernal_mus, kernel_sigmas
-from .utils.file_operation import parse_stoplist, make_directory
-from .model.nprf_drmm_config import NPRFDRMMConfig
-from .model.nprf_drmm import NPRFDRMM
-from .model.model import NBatchLogger
-from .metrics.rank_losses import rank_hinge_loss
-from .metrics.evaluations import evaluate_trec
-from .utils.nprf_drmm_pair_generator import NPRFDRMMPairGenerator
-from .utils.result import Result
-from .utils import pair_generator
-from .utils.relevance_info import Relevance
-from pyterrier import tqdm
+from preprocess.matrix import similarity_matrix, kernel_from_matrix, hist_from_matrix, kernal_mus, kernel_sigmas
+from utils.file_operation import parse_stoplist, make_directory
+from model.nprf_drmm_config import NPRFDRMMConfig
+from model.nprf_drmm import NPRFDRMM
+from model.model import NBatchLogger
+from metrics.rank_losses import rank_hinge_loss
+from metrics.evaluations import evaluate_trec
+from utils.nprf_drmm_pair_generator import NPRFDRMMPairGenerator
+from utils.result import Result
+from utils import pair_generator
+from utils.relevance_info import Relevance
+from tqdm import tqdm
+
+
 
 class NeuralPRFEstimator(EstimatorBase):
 
@@ -60,23 +65,45 @@ class NeuralPRFEstimator(EstimatorBase):
             content.extend(words)
         return content
 
-    def create_relevance(self, res, qrels):
+    def create_relevance(self, res, qrels, istraining=True ):
         relevance_dict = OrderedDict()
-        s1 = pd.merge(res, qrels, how='inner', on=['qid','docno'])
-        #s1.label = s1.label.fillna(0)
 
+        if not istraining:
+            for qid, n in res.groupby('qid'):
+                all_res = n.docno.tolist()
+                all_score = n.score.tolist()
+                
+                relevance = Relevance(qid, None, all_res, all_score)
+                
+                relevance_dict.update({qid: relevance})
+            self.relevance_dict = relevance_dict
+            pickle.dump(self.relevance_dict, open(self.relevance_file,'wb'))
+            return relevance_dict
+
+        s1 = pd.merge(res, qrels, how='left', on=['qid','docno'])
+        #s1.label = s1.label.fillna(0)
+        max_label = int(s1.label.max())
         for qid, n in s1.groupby('qid'):
             
-            all_res = n.docno.tolist()
-            all_score = n.score.tolist()
-            qrels = { row.docno : row.label for row in n.itertuples() }
+            # all_res = n.docno.tolist()
+            # all_score = n.score.tolist()
+            tmp_res_qid = res[res['qid']==qid]
+            all_res = tmp_res_qid.docno.tolist()
+            all_score = tmp_res_qid.score.tolist()
+            # qrels = { row.docno : row.label for row in n.itertuples() }
 
-            #list_rev_0 = n[(n.label==0) ]['docid'].tolist()
-            #list_rev_2 = n[n.label>=2]['docid'].tolist()
-            #list_rev_1 = n[(n.label>0) & (n.label <2)]['docid'].tolist()
-            #judged_docid_list_within_supervised = [list_rev_0, list_rev_1, list_rev_2]
-            relevance = Relevance(qid, qrels, all_res, all_score)
-            relevance_dict[qid] = relevance
+            judged_docid_list_within_supervised=[[] for i in range(max_label)]
+            for lb in range(max_label):
+                judged_docid_list_within_supervised[lb] = n[n.label==lb]['docno'].tolist()
+
+            
+            # list_rev_0 = n[(n.label==0) ]['docid'].tolist()
+            # list_rev_2 = n[n.label>=2]['docid'].tolist()
+            # list_rev_1 = n[(n.label>0) & (n.label <2)]['docid'].tolist()
+            # judged_docid_list_within_supervised = [list_rev_0, list_rev_1, list_rev_2]
+            relevance = Relevance(qid, judged_docid_list_within_supervised, all_res, all_score)
+            # relevance_dict[qid] = relevance
+            relevance_dict.update({qid: relevance})
         self.relevance_dict = relevance_dict
         pickle.dump(self.relevance_dict, open(self.relevance_file,'wb'))
         return relevance_dict
@@ -178,7 +205,7 @@ class NeuralPRFEstimator(EstimatorBase):
         # cand = judged_docid_list[0] + judged_docid_list[1] + judged_docid_list[2]
         useful_docid_list = supervised_docid_list[: 1000]#[:500] + waitlist
         
-        for docid in tqdm(useful_docid_list, unit="d", desc="sim_mat_and_kernel_per_query"):
+        for docid in useful_docid_list:#tqdm(useful_docid_list, unit="d", desc="sim_mat_and_kernel_per_query"):
             sim_mat_list = []
             ker_list = []
             if d2d:
@@ -232,7 +259,9 @@ class NeuralPRFEstimator(EstimatorBase):
             else:
                 sim_file_name = os.path.join(self.sim_output_path, str(qid), 'q{0}_d{1}.npy'.format(qid, docid))
             hist_file_name = os.path.join(hist_output_dir, 'q{0}_d{1}.npy'.format(qid, docid))
-            
+            if os.path.exists(hist_file_name):
+#             print('Already exists:', qid, docid)            
+                continue
             if d2d:
                 sim_list = pickle.load(open(sim_file_name,'rb'))
                 # sim_list = sim_out_dict[qid][0][docid]
@@ -251,8 +280,8 @@ class NeuralPRFEstimator(EstimatorBase):
                 np.save(hist_file_name, hist)
         # return hist_doc_dict
 
-    def preprocess(self, res, qrels, topics, top_k_term=5, embedding_file="/users/craigm/public_html/GoogleNews-vectors-negative300.bin.gz"):
-        self.relevance_dict = self.create_relevance(res,qrels)
+    def preprocess(self, res, qrels, topics, top_k_term=5, istraining=True, embedding_file="/users/craigm/public_html/GoogleNews-vectors-negative300.bin.gz"):
+        self.relevance_dict = self.create_relevance(res, qrels, istraining )
         topk_term_corpus = self.top_k(res, top_k_term)
         self.top_idf_dict = self.parse_idf_for_document(self.relevance_dict,topk_term_corpus, rerank_topk=60, doc_topk_term=top_k_term )
         
@@ -279,7 +308,26 @@ class NeuralPRFEstimator(EstimatorBase):
             'd2d': True
         }
         self.hist_d2d(**hist_params)
+    def result_to_dataframe(self, result_dict, docnolist_dict):
+        all_data=[]
+        for qid, result in result_dict.items():
 
+            docid_list = result.get_docid_list()
+            score_list = result.get_score_list()
+            rank = 0
+            for docid, score in zip(docid_list, score_list):
+                data = {}
+                data['qid']=qid
+                data['docid']=docid
+                data['docno']=docnolist_dict[docid]
+                data['rank']=rank
+                data['score']=score
+             
+                data['run_id']=result.get_runid()
+                all_data.append(data)
+                
+                rank += 1
+        return pd.DataFrame(all_data)
     def score_by_qid_list(self, X, model):
         topk_score_all = model.predict_on_batch(X)
         topk_score_all = topk_score_all.flatten()
@@ -287,14 +335,14 @@ class NeuralPRFEstimator(EstimatorBase):
 
     def eval_by_qid_list(self, X, len_indicator, res_dict, qualified_qid_list,  model,
                        relevance_dict, rerank_topk, nb_supervised_doc, doc_topk_term,
-                       docnolist_dict, runid, output_file):
+                       docnolist_dict, runid, output_file, qrels):
         topk_score_all  = self.score_by_qid_list(X, model)
 
-        qrels = {}
+        # qrels = {}
         run = {}
         for i, qid in enumerate(qualified_qid_list):
             relevance = relevance_dict.get(qid)
-            qrels[qid] = relevance.get_judgements()
+            # qrels[qid] = relevance.get_judgements()
          
             supervised_docid_list = relevance.get_supervised_docid_list()
             topk_score = topk_score_all[sum(len_indicator[:i]): sum(len_indicator[:i]) + len_indicator[i]]
@@ -353,17 +401,23 @@ class NeuralPRFEstimator(EstimatorBase):
             assert "docno" in qrels.columns
             assert "label" in qrels.columns
         
-        if not hasattr(self, 'relevance_dict'):
-            with open(self.relevance_file,'rb') as f:
-                self.relevance_dict = pickle.load(f)
+        # if not hasattr(self, 'relevance_dict'):
+        #     with open(self.relevance_file,'rb') as f:
+        #         self.relevance_dict = pickle.load(f)
 
-        res = pd.concat([topicsDocsTrain, topicsDocValid])        
+        res = pd.concat([topicsDocsTrain, topicsDocValid])
+        
+        ########################################## 
+        qrels_ = pd.concat([qrelsTrain, qrelsValid])
+        topics = res[['qid','query']].drop_duplicates()
+        self.preprocess(res, qrels_, topics, 20)
+        ##########################################
         docidlist=res['docid'].to_numpy()
         docnolist=res['docno'].to_numpy()
         docnolist_dict = dict(zip(docidlist, docnolist))
 
-        train_qid_list = topicsDocsTrain["qid"].to_list()
-        valid_qid_list = topicsDocValid["qid"].to_list()
+        train_qid_list = topicsDocsTrain["qid"].unique().tolist()
+        valid_qid_list = topicsDocValid["qid"].unique().tolist()
         assert len(train_qid_list) > 0
         assert len(valid_qid_list) > 0        
         
@@ -389,7 +443,8 @@ class NeuralPRFEstimator(EstimatorBase):
         self.model = ddm.build()
         self.model.compile(optimizer=ddm.config.optimizer, loss=rank_hinge_loss)
 
-        session = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=tf.compat.v1.GPUOptions(allow_growth=True)))
+        session = tf.Session(config=tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True)))
+        # session = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=tf.compat.v1.GPUOptions(allow_growth=True)))
 
         valid_params = ddm.eval_by_qid_list_helper(valid_qid_list, pair_generator)
         nb_pair_train = pair_generator.count_pairs_balanced(train_qid_list, ddm.config.pair_sample_size)
@@ -427,7 +482,8 @@ class NeuralPRFEstimator(EstimatorBase):
                   'runid': ddm.config.runid,
                   'nb_supervised_doc': ddm.config.nb_supervised_doc,
                   'doc_topk_term': ddm.config.doc_topk_term,
-                  'output_file': self.output_file}
+                  'output_file': self.output_file,
+                  'qrels': qrels_}
                 # if use_nprf:
                 #     kwargs.update({'nb_supervised_doc': ddm.config.nb_supervised_doc,
                 #                 'doc_topk_term': ddm.config.doc_topk_term,})
@@ -449,6 +505,7 @@ class NeuralPRFEstimator(EstimatorBase):
         print('MAP:{}\tP20:{}\tNDCG20:{}'.format())
         
         self.model.load_weights(self.model_file)
+        self.ddm = ddm
 
     def transform(self, topics_and_docs):
         for Docs in [topics_and_docs]:
@@ -457,9 +514,11 @@ class NeuralPRFEstimator(EstimatorBase):
             assert "docid" in Docs.columns
             assert "qid" in Docs.columns
 
-        # self.preprocess(res, qrels, topics)
+        topics = topics_and_docs[['qid','query']].drop_duplicates()
+        self.preprocess(topics_and_docs, qrels=None, topics=topics, top_k_term=20,  istraining=False)
         config = NPRFDRMMConfig()
         config.parent_path = self.tempdir
+        config.relevance_dict_path = self.relevance_file
         config.dd_q_feature_path = self.topk_idf_file
         config.dd_d_feature_path = self.hist_path
         generator_params = {'relevance_dict_path': self.relevance_file,
