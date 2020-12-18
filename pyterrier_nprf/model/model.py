@@ -3,12 +3,14 @@ import os
 import logging
 import tensorflow as tf
 import sys
+sys.path.append('../utils/')
+sys.path.append('../metrics/')
 
-from ..utils.file_operation import retain_file, load_pickle
+from utils.file_operation import retain_file, load_pickle
 from keras.callbacks import Callback
 from collections import deque
 
-from ..metrics.rank_losses import rank_hinge_loss
+from metrics.rank_losses import rank_hinge_loss
 
 class BasicModel(object):
 

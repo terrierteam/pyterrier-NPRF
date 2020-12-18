@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from .utils.file_operation import make_directory
+from file_operation import make_directory
 class NPRFKNRMConfig():
 
   # qxd config

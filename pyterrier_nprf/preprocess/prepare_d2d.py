@@ -14,10 +14,10 @@ from functools import partial
 from contextlib import contextmanager
 
 
-from .preprocess.matrix import similarity_matrix, hist_from_matrix, kernel_from_matrix, kernal_mus, kernel_sigmas
-from .utils.file_operation import parse_corpus, parse_content, parse_topk_content, load_pickle, save_pickle, \
+from preprocess.matrix import similarity_matrix, hist_from_matrix, kernel_from_matrix, kernal_mus, kernel_sigmas
+from utils.file_operation import parse_corpus, parse_content, parse_topk_content, load_pickle, save_pickle, \
   make_directory, parse_topic, parse_stoplist, df_map_from_file
-from .utils.relevance_info import Relevance
+from utils.relevance_info import Relevance
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s : %(levelname)s : %(message)s')
 

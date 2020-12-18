@@ -8,10 +8,10 @@ import logging
 import numpy as np
 import pickle
 
-from .result import Result
+from utils.result import Result
 from bs4 import BeautifulSoup
 from collections import OrderedDict
-from .relevance_info import Relevance
+from utils.relevance_info import Relevance
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s : %(levelname)s : %(message)s')
 

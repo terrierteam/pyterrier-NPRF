@@ -25,14 +25,14 @@ import sys
 sys.path.append('../')
 sys.path.append('../metrics/')
 
-from ..utils.file_operation import write_result_to_trec_format, load_pickle, retain_file
-from ..metrics.evaluations import evaluate_trec
-from .model import BasicModel, NBatchLogger
-from ..utils.relevance_info import Relevance
-from ..utils.result import Result
-from ..utils.nprf_drmm_pair_generator import NPRFDRMMPairGenerator
-from .nprf_drmm_config import NPRFDRMMConfig
-from ..metrics.rank_losses import rank_hinge_loss
+from utils.file_operation import write_result_to_trec_format, load_pickle, retain_file
+from metrics.evaluations import evaluate_trec
+from model.model import BasicModel, NBatchLogger
+from utils.relevance_info import Relevance
+from utils.result import Result
+from utils.nprf_drmm_pair_generator import NPRFDRMMPairGenerator
+from model.nprf_drmm_config import NPRFDRMMConfig
+from metrics.rank_losses import rank_hinge_loss
 
 
 
@@ -63,7 +63,7 @@ class NPRFDRMM(BasicModel):
     # out = Dot(axes=[2, 2], name='dd_pseudo_out')([z, dd_q_w])
 
     out = Lambda(lambda x: K.batch_dot(x[0], x[1], axes=[2, 2]), name='dd_pseudo_out')([z, dd_q_w])
-    dd_init_out = Lambda(lambda x: tf.linalg.diag_part(x), output_shape=(self.config.nb_supervised_doc,), name='dd_init_out')(out)
+    dd_init_out = Lambda(lambda x: tf.matrix_diag_part(x), output_shape=(self.config.nb_supervised_doc,), name='dd_init_out')(out)
     '''
     dd_init_out = Lambda(lambda x: tf.reduce_sum(x, axis=2), output_shape=(self.config.nb_supervised_doc,))(z)
     '''
@@ -120,14 +120,15 @@ class NPRFDRMM(BasicModel):
     res_dict = OrderedDict()
     for qid in qid_list:
       
-      relevance = relevance_dict[qid]      
+      relevance = relevance_dict.get(qid)
+      
       supervised_docid_list = relevance.get_supervised_docid_list()
       if len(supervised_docid_list) < self.config.nb_supervised_doc:
         # cannot construct d2d feature, thus not need to be update
         score_list = relevance.get_supervised_score_list()
         res = Result(qid, supervised_docid_list, score_list, self.config.runid)
         res_dict.update({qid: res})
-        logging.warn("query {0} cannot be reranked: it has {1} supervised docs, {2} are required".format(qid, len(supervised_docid_list), self.config.nb_supervised_doc))
+        logging.warn("query {0} not to be rerank".format(qid))
       else:
         qualified_qid_list.append(qid)
     # generate re rank score
@@ -144,7 +145,7 @@ class NPRFDRMM(BasicModel):
     topk_score_all = topk_score_all.flatten()
 
     for i, qid in enumerate(qualified_qid_list):
-      relevance = relevance_dict[qid]
+      relevance = relevance_dict.get(qid)
       supervised_docid_list = relevance.get_supervised_docid_list()
       topk_score = topk_score_all[sum(len_indicator[:i]): sum(len_indicator[:i]) + len_indicator[i]]
 

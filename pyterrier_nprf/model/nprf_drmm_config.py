@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from ..utils.file_operation import make_directory
+from utils.file_operation import make_directory
 
 class NPRFDRMMConfig():
 
@@ -26,7 +26,7 @@ class NPRFDRMMConfig():
   loss_func = "rank_hinge_loss"
   optimizer = "adam"
   batch_size = 20
-  nb_epoch = 500
+  nb_epoch = 30
   max_iteration = 250
   learning_rate = 0.001
   pair_sample_size = 10

@@ -8,11 +8,11 @@ import pickle
 import sys
 # sys.path.append("../utils")
 
-from .utils.file_operation import load_pickle, parse_content
+from utils.file_operation import load_pickle, parse_content
 from collections import OrderedDict
 from bs4 import BeautifulSoup
-from .utils.relevance_info import Relevance
-from .utils.file_operation import docno2docid, df_map_from_file
+from utils.relevance_info import Relevance
+from utils.file_operation import docno2docid, df_map_from_file
 
 
 def update_qrels_relevance(qrels_file, docno_map):

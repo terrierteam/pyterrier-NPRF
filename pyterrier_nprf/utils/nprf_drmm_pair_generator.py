@@ -6,9 +6,9 @@ import pickle
 
 np.random.seed(118)
 
-from .file_operation import load_pickle, load_pickle_and_gzip
-from .relevance_info import Relevance
-from .pair_generator import PairGenerator
+from utils.file_operation import load_pickle, load_pickle_and_gzip
+from utils.relevance_info import Relevance
+from utils.pair_generator import PairGenerator
 
 class NPRFDRMMPairGenerator(PairGenerator):
 
@@ -151,9 +151,13 @@ class NPRFDRMMPairGenerator(PairGenerator):
     for i, docid in enumerate(rerank_docid_list):
       # qd_d_file = os.path.join(self.qd_d_feature_path, str(qid), "q{0}_d{1}.npy".format(qid, docid))
       dd_d_file = os.path.join(self.dd_d_feature_path, str(qid), "q{0}_d{1}.npy".format(qid, docid))
-      if not os.path.exists(dd_d_file):
-        raise KeyError("Could not find numpy file %s for qid %s docno %d. All docs are %s" % (dd_d_file, qid, docid, rerank_docid_list))
-
+      # print(dd_d_file)
+      # tmp = np.load(dd_d_file)
+      # print(tmp.shape)
+      # print(dd_d.shape)
+      # qd_d[i] = np.load(qd_d_file)
+      #  #self.nb_supervised_doc
+      #
       dd_d[i] = np.load(dd_d_file)[: self.nb_supervised_doc, : self.doc_topk_term]
 
     return dd_q, dd_d, score, len_indicator
@@ -165,6 +169,8 @@ class NPRFDRMMPairGenerator(PairGenerator):
     len_indicator_all = [len_indicator]
     for qid in qid_list[1:]:
       dd_q, dd_d, score, len_indicator = self.list_batch_nozip_perquery(qid, topk)
+      # qd_q_all = np.concatenate((qd_q_all, qd_q), axis=0)
+      # qd_d_all = np.concatenate((qd_d_all, qd_d), axis=0)
       dd_q_all = np.concatenate((dd_q_all, dd_q), axis=0)
       dd_d_all = np.concatenate((dd_d_all, dd_d), axis=0)
       score_all = np.concatenate((score_all, score), axis=0)

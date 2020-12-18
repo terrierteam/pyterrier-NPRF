@@ -14,7 +14,7 @@ import sys
 sys.path.append('../utils/')
 sys.path.append('../metrics/')
 
-from .utils.file_operation import write_result_to_trec_format, load_pickle, retain_file
+from file_operation import write_result_to_trec_format, load_pickle, retain_file
 from evaluations import evaluate_trec
 from model import BasicModel, NBatchLogger
 from nprf_knrm_config import NPRFKNRMConfig
@@ -92,7 +92,7 @@ class NPRFKNRM(BasicModel):
         score_list = relevance.get_supervised_score_list()
         res = Result(qid, supervised_docid_list, score_list, self.config.runid)
         res_dict.update({qid: res})
-        logging.warn("query {0} cannot be reranked: it has {1} supervised docs, {2} are required".format(qid, len(supervised_docid_list), self.config.nb_supervised_doc)))
+        logging.warn("query {0} not to be rerank".format(qid))
       else:
         qualified_qid_list.append(qid)
     # generate re rank features
