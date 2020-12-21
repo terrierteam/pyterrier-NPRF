@@ -33,7 +33,7 @@ from tqdm import tqdm
 
 class NeuralPRFEstimator(EstimatorBase):
 
-    def __init__(self, index, data_dir='data/'):
+    def __init__(self, index, data_dir='data/', nb_epoch=500):
         
         super().__init__()
         pair_generator.tqdm = tqdm
@@ -48,7 +48,7 @@ class NeuralPRFEstimator(EstimatorBase):
         self.hist_path = os.path.join(self.tempdir, 'hist/')
         self.sim_output_path = os.path.join(self.tempdir, 'sim/')
         self.kernel_output_path = os.path.join(self.tempdir, 'ker/')
-
+        self.nb_epoch = nb_epoch
         self.docno2docid = {}
         
         
@@ -335,7 +335,7 @@ class NeuralPRFEstimator(EstimatorBase):
 
     def eval_by_qid_list(self, X, len_indicator, res_dict, qualified_qid_list,  model,
                        relevance_dict, rerank_topk, nb_supervised_doc, doc_topk_term,
-                       docnolist_dict, runid, output_file, qrels):
+                       docnolist_dict, runid, output_file, qrels, istraining=True ):
         topk_score_all  = self.score_by_qid_list(X, model)
 
         # qrels = {}
@@ -354,11 +354,13 @@ class NeuralPRFEstimator(EstimatorBase):
                 score_list = np.concatenate((topk_score, behind_score))
 
             run[qid] = { str(docid) : float(score) for (docid, score) in zip(supervised_docid_list, score_list)}
-
-        metrics=["map", "P_20", "ndcg_cut_20"]
-        import pyterrier as pt
-        measure_dict = pt.Utils.evaluate(run, qrels, metrics=metrics)
-        return [measure_dict.get(m, 0.0) for m in metrics]
+        if istraining:
+            metrics=["map", "P_20", "ndcg_cut_20"]
+            import pyterrier as pt
+            measure_dict = pt.Utils.evaluate(run, qrels, metrics=metrics)
+            return [measure_dict.get(m, 0.0) for m in metrics]
+        else:
+            return run
 
     def _eval_by_qid_list_helper(self, qid_list, pair_generator, nb_supervised_doc, relevance_dict, runid, rerank_topk):
         
@@ -423,6 +425,7 @@ class NeuralPRFEstimator(EstimatorBase):
         
         config = NPRFDRMMConfig()
         config.parent_path = self.tempdir
+        config.nb_epoch = self.nb_epoch
         config.relevance_dict_path = self.relevance_file
         config.dd_q_feature_path = self.topk_idf_file
         config.dd_d_feature_path = self.hist_path
@@ -502,7 +505,7 @@ class NeuralPRFEstimator(EstimatorBase):
                     self.model.save_weights(self.model_file)
 
         print('MAP: %0.4f\tP@20:%0.2f\tNDCG20:%0.4f' % (best_map, best_p20, best_ndcg20))
-        print('MAP:{}\tP20:{}\tNDCG20:{}'.format())
+        # print('MAP:{}\tP20:{}\tNDCG20:{}'.format())
         
         self.model.load_weights(self.model_file)
         self.ddm = ddm
@@ -544,20 +547,23 @@ class NeuralPRFEstimator(EstimatorBase):
             self.ddm.config.runid, 
             self.ddm.config.rerank_topk)
 
-        docidlist=res['docid'].to_numpy()
-        docnolist=res['docno'].to_numpy()
+        docidlist=topics_and_docs['docid'].unique().tolist()
+        docnolist=topics_and_docs['docno'].unique().tolist()
         docnolist_dict = dict(zip(docidlist, docnolist))
         
-        # kwargs = {'model': self.model,
-        #           #'relevance_dict': self.relevance_dict,
-        #           'rerank_topk': self.ddm.config.rerank_topk,
-        #           #'qrels_file': self.qrels_eval_filename,
-        #           'docnolist_dict': docnolist_dict,
-        #           'runid': self.ddm.config.runid,
-        #           'nb_supervised_doc': self.ddm.config.nb_supervised_doc,
-        #           'doc_topk_term': self.ddm.config.doc_topk_term,
-        #           'output_file': self.output_file}
-        scores = self.score_by_qid_list(*test_params, model=self.model)
-        rtr = topics_and_docs.copy()
-        rtr["scores"] = scores
-        return rtr
+        kwargs = {'model': self.model,
+                  'relevance_dict': self.relevance_dict,
+                  'rerank_topk': self.ddm.config.rerank_topk,
+                #   'qrels_file': None,
+                  'docnolist_dict': docnolist_dict,
+                  'runid': self.ddm.config.runid,
+                  'nb_supervised_doc': self.ddm.config.nb_supervised_doc,
+                  'doc_topk_term': self.ddm.config.doc_topk_term,
+                  'output_file': self.output_file,
+                  'qrels': None,
+                  'istraining': False}
+        results_dict = self.eval_by_qid_list(*test_params, **kwargs)
+        # scores = self.score_by_qid_list(X=*test_params, model=self.model)
+        # rtr = topics_and_docs.copy()
+        # rtr["scores"] = scores
+        return results_dict #self.result_to_dataframe(results_dict,docnolist_dict)
