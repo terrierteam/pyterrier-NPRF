@@ -1,7 +1,5 @@
 python-terrier @ git+https://github.com/terrier-org/pyterrier.git@3a815f10086fffdde5df437ce8531cd5eca6ce05
 pytrec-eval
-tensorflow==1.15.0
-Keras==2.2.4
 sklearn
 numpy
 matplotlib
